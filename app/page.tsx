@@ -1302,6 +1302,25 @@ export default function Page() {
             </div>
           </div>
         ) : null}
+
+        {/* SEO text for Google */}
+        <section
+          style={{
+            maxWidth: 720,
+            margin: "40px auto 20px",
+            fontSize: 14,
+            opacity: 0.85,
+            lineHeight: 1.6,
+          }}
+        >
+          <h2>Maze Game</h2>
+          <p>
+            Maze Game is an online labyrinth puzzle game where you solve
+            increasingly complex mazes. Optimized for mobile and desktop,
+            featuring fog of war, keys, sequences and progressive difficulty.
+          </p>
+        </section>
+
       </div>
     </main>
   );
