@@ -57,6 +57,9 @@ type I18n = {
   soundOff: string;
 
   continueSaved: string;
+
+  // mobile controls
+  swipeHint: string;
 };
 
 const I18N: Record<Lang, I18n> = {
@@ -96,8 +99,8 @@ const I18N: Record<Lang, I18n> = {
     soundOff: "Sound: OFF",
 
     continueSaved: "Continuing from saved progress",
+    swipeHint: "Swipe on the maze or use the arrows",
   },
-
   it: {
     title: "Maze Game",
     level: "Livello",
@@ -134,8 +137,8 @@ const I18N: Record<Lang, I18n> = {
     soundOff: "Audio: OFF",
 
     continueSaved: "Riprendo dai progressi salvati",
+    swipeHint: "Swipe sul labirinto o usa le frecce",
   },
-
   es: {
     title: "Maze Game",
     level: "Nivel",
@@ -172,8 +175,8 @@ const I18N: Record<Lang, I18n> = {
     soundOff: "Sonido: OFF",
 
     continueSaved: "Continuando desde el progreso guardado",
+    swipeHint: "Desliza en el laberinto o usa las flechas",
   },
-
   fr: {
     title: "Maze Game",
     level: "Niveau",
@@ -210,8 +213,8 @@ const I18N: Record<Lang, I18n> = {
     soundOff: "Son: OFF",
 
     continueSaved: "Reprise depuis la progression enregistrée",
+    swipeHint: "Glisse sur le labyrinthe ou utilise les flèches",
   },
-
   de: {
     title: "Maze Game",
     level: "Level",
@@ -248,8 +251,8 @@ const I18N: Record<Lang, I18n> = {
     soundOff: "Sound: OFF",
 
     continueSaved: "Fortsetzen mit gespeichertem Fortschritt",
+    swipeHint: "Wische im Labyrinth oder nutze die Pfeile",
   },
-
   pt: {
     title: "Maze Game",
     level: "Nível",
@@ -286,8 +289,8 @@ const I18N: Record<Lang, I18n> = {
     soundOff: "Som: OFF",
 
     continueSaved: "Continuando do progresso salvo",
+    swipeHint: "Deslize no labirinto ou use as setas",
   },
-
   ro: {
     title: "Maze Game",
     level: "Nivel",
@@ -324,6 +327,7 @@ const I18N: Record<Lang, I18n> = {
     soundOff: "Sunet: OFF",
 
     continueSaved: "Continui de la progresul salvat",
+    swipeHint: "Glisează pe labirint sau folosește săgețile",
   },
 };
 
@@ -344,7 +348,10 @@ const LS_LANG = "maze_lang";
 
 export default function Page() {
   const [mounted, setMounted] = useState(false);
+  const [vw, setVw] = useState(1200);
   const [vh, setVh] = useState(800);
+
+  const isMobile = useMemo(() => vw < 820, [vw]);
 
   // language
   const [lang, setLang] = useState<Lang>("en");
@@ -383,13 +390,21 @@ export default function Page() {
   const moveSfxRef = useRef<HTMLAudioElement | null>(null);
   const winSfxRef = useRef<HTMLAudioElement | null>(null);
   const wonThisLevelRef = useRef(false);
-
   const [soundEnabled, setSoundEnabled] = useState(false);
+
+  // 👆 swipe
+  const touchStartRef = useRef<{ x: number; y: number; active: boolean }>({ x: 0, y: 0, active: false });
 
   useEffect(() => {
     setMounted(true);
+    setVw(window.innerWidth);
     setVh(window.innerHeight);
-    const onResize = () => setVh(window.innerHeight);
+
+    const onResize = () => {
+      setVw(window.innerWidth);
+      setVh(window.innerHeight);
+    };
+
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
@@ -417,8 +432,6 @@ export default function Page() {
 
       if (maxOk > 1 || curClamped > 1) setLoadedProgress(true);
     } catch {}
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
   /** persist language */
@@ -604,6 +617,34 @@ export default function Page() {
     });
   }
 
+  /** swipe handlers */
+  function onPointerDown(e: React.PointerEvent) {
+    // stop scroll on mobile while swiping inside maze
+    if (e.pointerType === "touch") e.preventDefault();
+    touchStartRef.current = { x: e.clientX, y: e.clientY, active: true };
+  }
+
+  function onPointerUp(e: React.PointerEvent) {
+    if (!touchStartRef.current.active) return;
+
+    const sx = touchStartRef.current.x;
+    const sy = touchStartRef.current.y;
+    const dx = e.clientX - sx;
+    const dy = e.clientY - sy;
+
+    touchStartRef.current.active = false;
+
+    // minimum swipe distance (tuned for phones)
+    const threshold = Math.max(22, Math.floor(Math.min(vw, vh) * 0.04));
+    if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      move(dx > 0 ? "E" : "W");
+    } else {
+      move(dy > 0 ? "S" : "N");
+    }
+  }
+
   /** keyboard */
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -657,22 +698,36 @@ export default function Page() {
     } catch {}
   }
 
-  const cellSize = Math.max(14, Math.floor(Math.min(560, vh - 320) / Math.max(w, h)));
-  const wall = 4;
+  // sizing for “above the fold” on mobile: keep maze visible + reserve space for controls
+  const headerReserve = isMobile ? 170 : 220;
+  const controlsReserve = isMobile ? 150 : 0;
+  const available = Math.max(280, vh - headerReserve - controlsReserve);
+
+  const maxBoardPx = isMobile ? Math.min(vw - 24, available) : Math.min(720, available);
+  const cellSize = Math.max(14, Math.floor(maxBoardPx / Math.max(w, h)));
+
+  const wall = Math.max(3, Math.floor(cellSize * 0.22));
   const padding = wall + 3;
   const inner = cellSize - padding * 2;
-  const dotSize = Math.max(6, Math.floor(inner * 0.65));
+  const dotSize = Math.max(8, Math.floor(inner * 0.65));
   const dotOffset = (inner - dotSize) / 2;
   const dotX = player.x * cellSize + padding + dotOffset;
   const dotY = player.y * cellSize + padding + dotOffset;
 
   const canGoPrev = currentLevel > 1;
   const canGoNext = currentLevel < maxLevelReached;
-
   const exitUnlocked = isExitUnlocked();
 
+  const topRowStyle: React.CSSProperties = isMobile
+    ? { display: "flex", flexDirection: "column", gap: 10 }
+    : { display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 };
+
+  const rightActionsStyle: React.CSSProperties = isMobile
+    ? { display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }
+    : { display: "flex", gap: 10, alignItems: "center" };
+
   return (
-    <main style={{ height: "100vh", display: "flex", flexDirection: "column", alignItems: "center", padding: 16 }}>
+    <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", padding: 12 }}>
       {/* pulse keyframes */}
       <style jsx global>{`
         @keyframes keyPulse {
@@ -694,42 +749,45 @@ export default function Page() {
         }
       `}</style>
 
-      <div style={{ width: "min(94vw, 980px)" }}>
-        <header style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+      <div style={{ width: "min(96vw, 980px)" }}>
+        <header style={topRowStyle}>
           <div>
-            <h1 style={{ fontSize: 26, margin: 0 }}>{t.title}</h1>
+            <h1 style={{ fontSize: isMobile ? 22 : 26, margin: 0 }}>{t.title}</h1>
 
-            <p style={{ margin: "6px 0 0", opacity: 0.85, lineHeight: 1.35 }}>
+            <p style={{ margin: "6px 0 0", opacity: 0.85, lineHeight: 1.35, fontSize: isMobile ? 13 : 14 }}>
               {t.level} <b>{currentLevel}</b> ({t.unlocked}: <b>{maxLevelReached}</b>) — {w}×{h} • {t.fog}:{" "}
               <b>7×7</b>
             </p>
 
             {loadedProgress ? (
-              <p style={{ margin: "6px 0 0", opacity: 0.8 }}>{t.continueSaved} ✅</p>
+              <p style={{ margin: "6px 0 0", opacity: 0.8, fontSize: isMobile ? 12 : 13 }}>
+                {t.continueSaved} ✅
+              </p>
             ) : null}
 
-            <p style={{ margin: "6px 0 0", opacity: 0.9 }}>
+            <p style={{ margin: "6px 0 0", opacity: 0.9, fontSize: isMobile ? 12 : 13 }}>
               <b>{t.addedDifficulty}:</b> {levelRule.added}
             </p>
 
             {mode === "KEY" ? (
-              <p style={{ margin: "6px 0 0", opacity: 0.8 }}>
+              <p style={{ margin: "6px 0 0", opacity: 0.8, fontSize: isMobile ? 12 : 13 }}>
                 {t.keyStatus}: <b>{hasKey ? t.keyTaken : t.keyMissing}</b>
               </p>
             ) : null}
 
             {mode === "SEQUENCE" && checkpoints.length === 2 ? (
-              <p style={{ margin: "6px 0 0", opacity: 0.8 }}>
+              <p style={{ margin: "6px 0 0", opacity: 0.8, fontSize: isMobile ? 12 : 13 }}>
                 {t.sequence}: <b>{seqIndex === 0 ? t.goToA : seqIndex === 1 ? t.goToB : t.goToExit}</b>
               </p>
             ) : null}
 
             <p style={{ margin: "6px 0 0", opacity: 0.75, fontSize: 12 }}>
               {soundEnabled ? t.soundOn : t.soundOff}
+              {isMobile ? ` • ${t.swipeHint}` : null}
             </p>
           </div>
 
-          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={rightActionsStyle}>
             <label style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, opacity: 0.8 }}>
               {t.language}
               <select
@@ -742,6 +800,7 @@ export default function Page() {
                   background: "white",
                   cursor: "pointer",
                   fontSize: 14,
+                  minWidth: isMobile ? 160 : 180,
                 }}
               >
                 {(Object.keys(LANG_LABELS) as Lang[]).map((code) => (
@@ -761,7 +820,6 @@ export default function Page() {
                   border: "1px solid rgba(0,0,0,0.15)",
                   background: "white",
                   cursor: "pointer",
-                  alignSelf: "flex-end",
                 }}
               >
                 {t.enableSound}
@@ -776,7 +834,6 @@ export default function Page() {
                 border: "1px solid rgba(0,0,0,0.15)",
                 background: "white",
                 cursor: "pointer",
-                alignSelf: "flex-end",
               }}
             >
               {t.reset}
@@ -784,21 +841,36 @@ export default function Page() {
           </div>
         </header>
 
+        {/* Maze */}
         <div
           style={{
-            marginTop: 12,
-            padding: 12,
+            marginTop: 10,
+            padding: isMobile ? 10 : 12,
             borderRadius: 18,
             border: "1px solid rgba(0,0,0,0.12)",
             background: "white",
             boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
             overflow: "hidden",
+            display: "flex",
+            justifyContent: "center",
           }}
         >
           {!maze ? (
             <div style={{ padding: 16, opacity: 0.7 }}>{t.loading}</div>
           ) : (
-            <div style={{ position: "relative", width: w * cellSize, height: h * cellSize, background: "#fff" }}>
+            <div
+              style={{
+                position: "relative",
+                width: w * cellSize,
+                height: h * cellSize,
+                background: "#fff",
+                touchAction: "none", // ✅ important for swipe (prevents page scrolling during swipe)
+                WebkitUserSelect: "none",
+                userSelect: "none",
+              }}
+              onPointerDown={onPointerDown}
+              onPointerUp={onPointerUp}
+            >
               <div
                 style={{
                   position: "absolute",
@@ -877,7 +949,7 @@ export default function Page() {
                         overflow: "hidden",
                       }}
                     >
-                      {/* Key image overlay + PULSE */}
+                      {/* Key image overlay + pulse */}
                       {isKeyCell && !hasKey ? (
                         <img
                           src="/img/key.png"
@@ -900,6 +972,7 @@ export default function Page() {
                 })}
               </div>
 
+              {/* Player */}
               <div
                 style={{
                   position: "absolute",
@@ -918,9 +991,10 @@ export default function Page() {
           )}
         </div>
 
+        {/* Level nav */}
         <div
           style={{
-            marginTop: 12,
+            marginTop: 10,
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -943,6 +1017,7 @@ export default function Page() {
               opacity: canGoPrev ? 1 : 0.5,
               fontSize: 18,
               lineHeight: 1,
+              minWidth: 52,
             }}
           >
             ←
@@ -968,6 +1043,7 @@ export default function Page() {
               opacity: canGoNext ? 1 : 0.5,
               fontSize: 18,
               lineHeight: 1,
+              minWidth: 52,
             }}
           >
             →
@@ -979,7 +1055,62 @@ export default function Page() {
             Exit: <b>{exitUnlocked ? t.exitUnlocked : t.exitLocked}</b>
           </div>
         ) : null}
+
+        {/* Mobile touch controls */}
+        {isMobile ? (
+          <div
+            style={{
+              position: "sticky",
+              bottom: 10,
+              marginTop: 10,
+              padding: 12,
+              borderRadius: 16,
+              border: "1px solid rgba(0,0,0,0.12)",
+              background: "rgba(255,255,255,0.92)",
+              backdropFilter: "blur(8px)",
+              WebkitBackdropFilter: "blur(8px)",
+              boxShadow: "0 10px 30px rgba(0,0,0,0.10)",
+            }}
+          >
+            <div style={{ display: "grid", gridTemplateColumns: "60px 60px 60px", gap: 10, justifyContent: "center" }}>
+              <div />
+              <button
+                onClick={() => move("N")}
+                style={dpadBtnStyle}
+                aria-label="Up"
+              >
+                ↑
+              </button>
+              <div />
+              <button onClick={() => move("W")} style={dpadBtnStyle} aria-label="Left">
+                ←
+              </button>
+              <button
+                onClick={() => move("S")}
+                style={dpadBtnStyle}
+                aria-label="Down"
+              >
+                ↓
+              </button>
+              <button onClick={() => move("E")} style={dpadBtnStyle} aria-label="Right">
+                →
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
     </main>
   );
 }
+
+const dpadBtnStyle: React.CSSProperties = {
+  height: 56,
+  width: 60,
+  borderRadius: 14,
+  border: "1px solid rgba(0,0,0,0.18)",
+  background: "white",
+  cursor: "pointer",
+  fontSize: 22,
+  lineHeight: 1,
+  boxShadow: "0 6px 16px rgba(0,0,0,0.08)",
+};
