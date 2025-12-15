@@ -346,6 +346,10 @@ const LS_MAX = "maze_progress_maxLevel";
 const LS_CUR = "maze_progress_currentLevel";
 const LS_LANG = "maze_lang";
 
+// 🔊 persist audio
+const LS_SOUND = "maze_sound_enabled";
+const LS_BGM_VOL = "maze_bgm_volume";
+
 export default function Page() {
   const [mounted, setMounted] = useState(false);
   const [vw, setVw] = useState(1200);
@@ -386,11 +390,21 @@ export default function Page() {
   const FOG_RADIUS = 3;
   const [seen, setSeen] = useState<boolean[][]>([]);
 
-  // 🔊 SFX
+  // 🔊 SFX + 🎵 BGM
   const moveSfxRef = useRef<HTMLAudioElement | null>(null);
   const winSfxRef = useRef<HTMLAudioElement | null>(null);
+
+  const bgmRef = useRef<HTMLAudioElement | null>(null);
+  const bgmStartedRef = useRef(false);
+  const fadeRafRef = useRef<number | null>(null);
+
   const wonThisLevelRef = useRef(false);
-  const [soundEnabled, setSoundEnabled] = useState(false);
+
+  // ✅ Audio ON di default (come richiesto)
+  const [soundEnabled, setSoundEnabled] = useState(true);
+
+  // 🎚️ volume musica
+  const [bgmVolume, setBgmVolume] = useState(0.35);
 
   // 👆 swipe
   const touchStartRef = useRef<{ x: number; y: number; active: boolean }>({ x: 0, y: 0, active: false });
@@ -409,7 +423,7 @@ export default function Page() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  /** restore language + progress (client only) */
+  /** restore language + progress + audio (client only) */
   useEffect(() => {
     if (!mounted) return;
 
@@ -432,6 +446,18 @@ export default function Page() {
 
       if (maxOk > 1 || curClamped > 1) setLoadedProgress(true);
     } catch {}
+
+    // audio prefs
+    try {
+      const s = window.localStorage.getItem(LS_SOUND);
+      if (s === "0") setSoundEnabled(false);
+      if (s === "1") setSoundEnabled(true);
+    } catch {}
+
+    try {
+      const v = Number(window.localStorage.getItem(LS_BGM_VOL) ?? "0.35");
+      if (Number.isFinite(v)) setBgmVolume(Math.min(1, Math.max(0, v)));
+    } catch {}
   }, [mounted]);
 
   /** persist language */
@@ -451,6 +477,21 @@ export default function Page() {
     } catch {}
   }, [mounted, maxLevelReached, currentLevel]);
 
+  /** persist audio prefs */
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      window.localStorage.setItem(LS_SOUND, soundEnabled ? "1" : "0");
+    } catch {}
+  }, [mounted, soundEnabled]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      window.localStorage.setItem(LS_BGM_VOL, String(bgmVolume));
+    } catch {}
+  }, [mounted, bgmVolume]);
+
   /** init audio objects (client only) */
   useEffect(() => {
     if (!mounted) return;
@@ -464,11 +505,112 @@ export default function Page() {
     w.volume = 0.6;
     w.preload = "auto";
     winSfxRef.current = w;
+
+    // 🎵 BACKGROUND MUSIC (loop)
+    const bg = new Audio("/music/bg.mp3");
+    bg.loop = true;
+    bg.preload = "auto";
+    bg.volume = Math.min(1, Math.max(0, bgmVolume));
+    bgmRef.current = bg;
+
+    // prova autoplay immediato (se il browser lo consente)
+    const tryAutoplay = async () => {
+      if (!soundEnabled) return;
+      if (!bgmRef.current || bgmStartedRef.current) return;
+
+      // fade-in: partiamo a 0
+      bgmRef.current.volume = 0;
+
+      try {
+        await bgmRef.current.play();
+        bgmStartedRef.current = true;
+        startFadeTo(bgmVolume, 1200);
+      } catch {
+        // autoplay bloccato: ok, partiremo al primo gesto utente
+      }
+    };
+
+    void tryAutoplay();
+
+    return () => {
+      if (fadeRafRef.current) cancelAnimationFrame(fadeRafRef.current);
+      fadeRafRef.current = null;
+
+      try {
+        bg.pause();
+        bg.currentTime = 0;
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
+
+  // fade helper
+  function startFadeTo(target: number, ms: number) {
+    const bg = bgmRef.current;
+    if (!bg) return;
+
+    if (fadeRafRef.current) cancelAnimationFrame(fadeRafRef.current);
+    fadeRafRef.current = null;
+
+    const from = bg.volume;
+    const to = Math.min(1, Math.max(0, target));
+    const start = performance.now();
+
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / ms);
+      bg.volume = from + (to - from) * t;
+
+      if (t < 1) {
+        fadeRafRef.current = requestAnimationFrame(tick);
+      } else {
+        fadeRafRef.current = null;
+      }
+    };
+
+    fadeRafRef.current = requestAnimationFrame(tick);
+  }
+
+  async function ensureBgmPlaying(withFade: boolean) {
+    const bg = bgmRef.current;
+    if (!bg || !soundEnabled) return;
+
+    bg.loop = true;
+
+    // se era in pausa, prova play
+    if (bg.paused) {
+      try {
+        if (withFade) bg.volume = 0;
+        else bg.volume = Math.min(1, Math.max(0, bgmVolume));
+
+        await bg.play();
+        bgmStartedRef.current = true;
+
+        if (withFade) startFadeTo(bgmVolume, 1200);
+      } catch {
+        // bloccato: niente (partirà su gesto successivo)
+      }
+    } else {
+      // già in play: aggiorna volume
+      bg.volume = Math.min(1, Math.max(0, bgmVolume));
+    }
+  }
+
+  function disableSound() {
+    setSoundEnabled(false);
+
+    // stop musica
+    const bg = bgmRef.current;
+    if (bg) {
+      try {
+        bg.pause();
+      } catch {}
+    }
+  }
 
   function enableSound() {
     setSoundEnabled(true);
 
+    // “unlock” policy su alcuni browser usando un suono piccolo
     const a = moveSfxRef.current;
     if (a) {
       a.muted = true;
@@ -482,11 +624,8 @@ export default function Page() {
           a.muted = false;
         });
     }
-  }
 
-  // ✅ MODIFICA: disattiva audio
-  function disableSound() {
-    setSoundEnabled(false);
+    void ensureBgmPlaying(true);
   }
 
   function playMoveSfx() {
@@ -504,6 +643,37 @@ export default function Page() {
     w.currentTime = 0;
     w.play().catch(() => {});
   }
+
+  // se autoplay è bloccato, facciamo partire la musica al primo gesto utente
+  useEffect(() => {
+    if (!mounted) return;
+
+    const startOnFirstGesture = () => {
+      if (!soundEnabled) return;
+      if (bgmStartedRef.current && !bgmRef.current?.paused) return;
+      void ensureBgmPlaying(true);
+    };
+
+    window.addEventListener("pointerdown", startOnFirstGesture, { passive: true });
+    window.addEventListener("keydown", startOnFirstGesture);
+
+    return () => {
+      window.removeEventListener("pointerdown", startOnFirstGesture as any);
+      window.removeEventListener("keydown", startOnFirstGesture as any);
+    };
+  }, [mounted, soundEnabled, bgmVolume]);
+
+  // aggiorna volume musica live (slider)
+  useEffect(() => {
+    const bg = bgmRef.current;
+    if (!bg) return;
+
+    if (!soundEnabled) return;
+
+    // se sta suonando, cambia subito volume verso target (senza reset)
+    // (non facciamo fade ogni volta: sarebbe fastidioso)
+    bg.volume = Math.min(1, Math.max(0, bgmVolume));
+  }, [bgmVolume, soundEnabled]);
 
   /** generate/load level */
   useEffect(() => {
@@ -624,7 +794,6 @@ export default function Page() {
 
   /** swipe handlers */
   function onPointerDown(e: React.PointerEvent) {
-    // stop scroll on mobile while swiping inside maze
     if (e.pointerType === "touch") e.preventDefault();
     touchStartRef.current = { x: e.clientX, y: e.clientY, active: true };
   }
@@ -639,7 +808,6 @@ export default function Page() {
 
     touchStartRef.current.active = false;
 
-    // minimum swipe distance (tuned for phones)
     const threshold = Math.max(22, Math.floor(Math.min(vw, vh) * 0.04));
     if (Math.abs(dx) < threshold && Math.abs(dy) < threshold) return;
 
@@ -650,54 +818,52 @@ export default function Page() {
     }
   }
 
-  /** keyboard */
+  /** keyboard (✅ no scroll on arrows) */
   useEffect(() => {
-  function onKeyDown(e: KeyboardEvent) {
-    const k = e.key.toLowerCase();
+    function onKeyDown(e: KeyboardEvent) {
+      const k = e.key.toLowerCase();
 
-    const isMoveKey =
-      k === "arrowup" ||
-      k === "arrowdown" ||
-      k === "arrowleft" ||
-      k === "arrowright" ||
-      k === "w" ||
-      k === "a" ||
-      k === "s" ||
-      k === "d";
+      const isMoveKey =
+        k === "arrowup" ||
+        k === "arrowdown" ||
+        k === "arrowleft" ||
+        k === "arrowright" ||
+        k === "w" ||
+        k === "a" ||
+        k === "s" ||
+        k === "d";
 
-    // ✅ BLOCCA LO SCROLL DELLA PAGINA
-    if (isMoveKey) e.preventDefault();
+      if (isMoveKey) e.preventDefault();
 
-    if (k === "arrowup" || k === "w") move("N");
-    if (k === "arrowdown" || k === "s") move("S");
-    if (k === "arrowleft" || k === "a") move("W");
-    if (k === "arrowright" || k === "d") move("E");
+      if (k === "arrowup" || k === "w") move("N");
+      if (k === "arrowdown" || k === "s") move("S");
+      if (k === "arrowleft" || k === "a") move("W");
+      if (k === "arrowright" || k === "d") move("E");
 
-    if (k === "j") setCurrentLevel((lv) => Math.max(1, lv - 1));
-    if (k === "l") setCurrentLevel((lv) => Math.min(maxLevelReached, lv + 1));
+      if (k === "j") setCurrentLevel((lv) => Math.max(1, lv - 1));
+      if (k === "l") setCurrentLevel((lv) => Math.min(maxLevelReached, lv + 1));
 
-    if (k === "r") {
-      const next = levelToSize(currentLevel);
-      const gen = generateLevel(next.w, next.h, levelRule.mode);
-      setLevels((prev) => ({
-        ...prev,
-        [currentLevel]: {
-          maze: gen.maze,
-          start: gen.start,
-          exit: gen.exit,
-          mode: gen.mode,
-          keyPos: gen.keyPos,
-          checkpoints: gen.checkpoints,
-        },
-      }));
+      if (k === "r") {
+        const next = levelToSize(currentLevel);
+        const gen = generateLevel(next.w, next.h, levelRule.mode);
+        setLevels((prev) => ({
+          ...prev,
+          [currentLevel]: {
+            maze: gen.maze,
+            start: gen.start,
+            exit: gen.exit,
+            mode: gen.mode,
+            keyPos: gen.keyPos,
+            checkpoints: gen.checkpoints,
+          },
+        }));
+      }
     }
-  }
 
-  // ⚠️ passive:false è fondamentale
-  window.addEventListener("keydown", onKeyDown, { passive: false });
-
-  return () => window.removeEventListener("keydown", onKeyDown as any);
-}, [maze, currentLevel, maxLevelReached, levelRule.mode, soundEnabled]);
+    window.addEventListener("keydown", onKeyDown, { passive: false });
+    return () => window.removeEventListener("keydown", onKeyDown as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [maze, currentLevel, maxLevelReached, levelRule.mode, soundEnabled]);
 
   function resetAll() {
     setMaxLevelReached(1);
@@ -717,7 +883,7 @@ export default function Page() {
     } catch {}
   }
 
-  // sizing for “above the fold” on mobile: keep maze visible + reserve space for controls
+  // sizing for “above the fold” on mobile
   const headerReserve = isMobile ? 170 : 220;
   const controlsReserve = isMobile ? 150 : 0;
   const available = Math.max(280, vh - headerReserve - controlsReserve);
@@ -729,13 +895,12 @@ export default function Page() {
   const padding = wall + 3;
   const inner = cellSize - padding * 2;
 
-  // base dot size
   const dotSize = Math.max(8, Math.floor(inner * 0.65));
   const dotOffset = (inner - dotSize) / 2;
   const dotX = player.x * cellSize + padding + dotOffset;
   const dotY = player.y * cellSize + padding + dotOffset;
 
-  // ✅ MODIFICA: player più grande (scaling) e centrato
+  // ✅ player più grande e centrato
   const playerScale = 1.25;
   const playerSize = Math.floor(dotSize * playerScale);
   const playerCenterOffset = (playerSize - dotSize) / 2;
@@ -751,6 +916,8 @@ export default function Page() {
   const rightActionsStyle: React.CSSProperties = isMobile
     ? { display: "flex", gap: 10, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }
     : { display: "flex", gap: 10, alignItems: "center" };
+
+  const volPct = Math.round(bgmVolume * 100);
 
   return (
     <main style={{ minHeight: "100vh", display: "flex", flexDirection: "column", alignItems: "center", padding: 12 }}>
@@ -781,11 +948,14 @@ export default function Page() {
             <h1 style={{ fontSize: isMobile ? 22 : 26, margin: 0 }}>{t.title}</h1>
 
             <p style={{ margin: "6px 0 0", opacity: 0.85, lineHeight: 1.35, fontSize: isMobile ? 13 : 14 }}>
-              {t.level} <b>{currentLevel}</b> ({t.unlocked}: <b>{maxLevelReached}</b>) — {w}×{h} • {t.fog}: <b>7×7</b>
+              {t.level} <b>{currentLevel}</b> ({t.unlocked}: <b>{maxLevelReached}</b>) — {w}×{h} • {t.fog}:{" "}
+              <b>7×7</b>
             </p>
 
             {loadedProgress ? (
-              <p style={{ margin: "6px 0 0", opacity: 0.8, fontSize: isMobile ? 12 : 13 }}>{t.continueSaved} ✅</p>
+              <p style={{ margin: "6px 0 0", opacity: 0.8, fontSize: isMobile ? 12 : 13 }}>
+                {t.continueSaved} ✅
+              </p>
             ) : null}
 
             <p style={{ margin: "6px 0 0", opacity: 0.9, fontSize: isMobile ? 12 : 13 }}>
@@ -834,7 +1004,25 @@ export default function Page() {
               </select>
             </label>
 
-            {/* ✅ MODIFICA: toggle ON/OFF */}
+            {/* 🎚️ Volume slider musica */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, fontSize: 12, opacity: 0.85 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                <span>Music</span>
+                <b>{volPct}%</b>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={bgmVolume}
+                onChange={(e) => setBgmVolume(Number(e.target.value))}
+                style={{ width: isMobile ? 160 : 190 }}
+                aria-label="Music volume"
+              />
+            </div>
+
+            {/* Toggle audio ON/OFF */}
             <button
               onClick={() => (soundEnabled ? disableSound() : enableSound())}
               style={{
@@ -848,7 +1036,7 @@ export default function Page() {
               {soundEnabled ? t.soundOff : t.enableSound}
             </button>
 
-            {/* ✅ MODIFICA: Reset più piccolo */}
+            {/* Reset più piccolo */}
             <button
               onClick={resetAll}
               style={{
@@ -888,7 +1076,7 @@ export default function Page() {
                 width: w * cellSize,
                 height: h * cellSize,
                 background: "#fff",
-                touchAction: "none", // ✅ important for swipe (prevents page scrolling during swipe)
+                touchAction: "none",
                 WebkitUserSelect: "none",
                 userSelect: "none",
               }}
@@ -910,7 +1098,6 @@ export default function Page() {
 
                   const visible = isStart || isExit || seen[cell.y]?.[cell.x] === true;
 
-                  // fog covers walls too
                   if (!visible) {
                     return (
                       <div
@@ -973,7 +1160,6 @@ export default function Page() {
                         overflow: "hidden",
                       }}
                     >
-                      {/* Key image overlay + pulse */}
                       {isKeyCell && !hasKey ? (
                         <img
                           src="/img/key.png"
@@ -996,7 +1182,7 @@ export default function Page() {
                 })}
               </div>
 
-              {/* ✅ MODIFICA: Player più grande, rosso, contorno nero */}
+              {/* Player: più grande, rosso, contorno nero */}
               <div
                 style={{
                   position: "absolute",
