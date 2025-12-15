@@ -484,6 +484,11 @@ export default function Page() {
     }
   }
 
+  // ✅ MODIFICA: disattiva audio
+  function disableSound() {
+    setSoundEnabled(false);
+  }
+
   function playMoveSfx() {
     if (!soundEnabled) return;
     const a = moveSfxRef.current;
@@ -709,10 +714,17 @@ export default function Page() {
   const wall = Math.max(3, Math.floor(cellSize * 0.22));
   const padding = wall + 3;
   const inner = cellSize - padding * 2;
+
+  // base dot size
   const dotSize = Math.max(8, Math.floor(inner * 0.65));
   const dotOffset = (inner - dotSize) / 2;
   const dotX = player.x * cellSize + padding + dotOffset;
   const dotY = player.y * cellSize + padding + dotOffset;
+
+  // ✅ MODIFICA: player più grande (scaling) e centrato
+  const playerScale = 1.25;
+  const playerSize = Math.floor(dotSize * playerScale);
+  const playerCenterOffset = (playerSize - dotSize) / 2;
 
   const canGoPrev = currentLevel > 1;
   const canGoNext = currentLevel < maxLevelReached;
@@ -755,14 +767,11 @@ export default function Page() {
             <h1 style={{ fontSize: isMobile ? 22 : 26, margin: 0 }}>{t.title}</h1>
 
             <p style={{ margin: "6px 0 0", opacity: 0.85, lineHeight: 1.35, fontSize: isMobile ? 13 : 14 }}>
-              {t.level} <b>{currentLevel}</b> ({t.unlocked}: <b>{maxLevelReached}</b>) — {w}×{h} • {t.fog}:{" "}
-              <b>7×7</b>
+              {t.level} <b>{currentLevel}</b> ({t.unlocked}: <b>{maxLevelReached}</b>) — {w}×{h} • {t.fog}: <b>7×7</b>
             </p>
 
             {loadedProgress ? (
-              <p style={{ margin: "6px 0 0", opacity: 0.8, fontSize: isMobile ? 12 : 13 }}>
-                {t.continueSaved} ✅
-              </p>
+              <p style={{ margin: "6px 0 0", opacity: 0.8, fontSize: isMobile ? 12 : 13 }}>{t.continueSaved} ✅</p>
             ) : null}
 
             <p style={{ margin: "6px 0 0", opacity: 0.9, fontSize: isMobile ? 12 : 13 }}>
@@ -811,29 +820,30 @@ export default function Page() {
               </select>
             </label>
 
-            {!soundEnabled ? (
-              <button
-                onClick={enableSound}
-                style={{
-                  padding: "10px 14px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(0,0,0,0.15)",
-                  background: "white",
-                  cursor: "pointer",
-                }}
-              >
-                {t.enableSound}
-              </button>
-            ) : null}
-
+            {/* ✅ MODIFICA: toggle ON/OFF */}
             <button
-              onClick={resetAll}
+              onClick={() => (soundEnabled ? disableSound() : enableSound())}
               style={{
                 padding: "10px 14px",
                 borderRadius: 12,
                 border: "1px solid rgba(0,0,0,0.15)",
                 background: "white",
                 cursor: "pointer",
+              }}
+            >
+              {soundEnabled ? t.soundOff : t.enableSound}
+            </button>
+
+            {/* ✅ MODIFICA: Reset più piccolo */}
+            <button
+              onClick={resetAll}
+              style={{
+                padding: "7px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(0,0,0,0.15)",
+                background: "white",
+                cursor: "pointer",
+                fontSize: 13,
               }}
             >
               {t.reset}
@@ -912,16 +922,16 @@ export default function Page() {
                         ? "rgba(0, 255, 140, 0.42)"
                         : "rgba(255, 80, 80, 0.40)"
                       : isStart
-                        ? "rgba(40, 140, 255, 0.45)"
-                        : isA
-                          ? seqIndex >= 1
-                            ? "rgba(255, 165, 0, 0.18)"
-                            : "rgba(255, 165, 0, 0.35)"
-                          : isB
-                            ? seqIndex >= 2
-                              ? "rgba(200, 120, 255, 0.18)"
-                              : "rgba(200, 120, 255, 0.35)"
-                            : "#fff";
+                      ? "rgba(40, 140, 255, 0.45)"
+                      : isA
+                      ? seqIndex >= 1
+                        ? "rgba(255, 165, 0, 0.18)"
+                        : "rgba(255, 165, 0, 0.35)"
+                      : isB
+                      ? seqIndex >= 2
+                        ? "rgba(200, 120, 255, 0.18)"
+                        : "rgba(200, 120, 255, 0.35)"
+                      : "#fff";
 
                   const glow =
                     isExit
@@ -929,8 +939,8 @@ export default function Page() {
                         ? "0 0 14px rgba(0,255,140,0.95)"
                         : "0 0 14px rgba(255,80,80,0.95)"
                       : isStart
-                        ? "0 0 14px rgba(40,140,255,0.95)"
-                        : "none";
+                      ? "0 0 14px rgba(40,140,255,0.95)"
+                      : "none";
 
                   return (
                     <div
@@ -972,17 +982,19 @@ export default function Page() {
                 })}
               </div>
 
-              {/* Player */}
+              {/* ✅ MODIFICA: Player più grande, rosso, contorno nero */}
               <div
                 style={{
                   position: "absolute",
                   left: 0,
                   top: 0,
-                  width: dotSize,
-                  height: dotSize,
+                  width: playerSize,
+                  height: playerSize,
                   borderRadius: 999,
-                  background: "#111",
-                  transform: `translate(${dotX}px, ${dotY}px)`,
+                  background: "#ef4444",
+                  border: "3px solid #000",
+                  boxSizing: "border-box",
+                  transform: `translate(${dotX - playerCenterOffset}px, ${dotY - playerCenterOffset}px)`,
                   transition: "transform 90ms linear",
                   pointerEvents: "none",
                 }}
@@ -1074,22 +1086,14 @@ export default function Page() {
           >
             <div style={{ display: "grid", gridTemplateColumns: "60px 60px 60px", gap: 10, justifyContent: "center" }}>
               <div />
-              <button
-                onClick={() => move("N")}
-                style={dpadBtnStyle}
-                aria-label="Up"
-              >
+              <button onClick={() => move("N")} style={dpadBtnStyle} aria-label="Up">
                 ↑
               </button>
               <div />
               <button onClick={() => move("W")} style={dpadBtnStyle} aria-label="Left">
                 ←
               </button>
-              <button
-                onClick={() => move("S")}
-                style={dpadBtnStyle}
-                aria-label="Down"
-              >
+              <button onClick={() => move("S")} style={dpadBtnStyle} aria-label="Down">
                 ↓
               </button>
               <button onClick={() => move("E")} style={dpadBtnStyle} aria-label="Right">
