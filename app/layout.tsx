@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 
 export const metadata: Metadata = {
-  title: "Maze Game – Puzzle Labyrinth Game",
+  title: "Maze Game Online – PlayMazegame",
   description: "Play Maze Game online. A challenging labyrinth puzzle game optimized for mobile and desktop.",
 };
 
