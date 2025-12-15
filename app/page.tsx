@@ -652,38 +652,52 @@ export default function Page() {
 
   /** keyboard */
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const k = e.key.toLowerCase();
+  function onKeyDown(e: KeyboardEvent) {
+    const k = e.key.toLowerCase();
 
-      if (k === "arrowup" || k === "w") move("N");
-      if (k === "arrowdown" || k === "s") move("S");
-      if (k === "arrowleft" || k === "a") move("W");
-      if (k === "arrowright" || k === "d") move("E");
+    const isMoveKey =
+      k === "arrowup" ||
+      k === "arrowdown" ||
+      k === "arrowleft" ||
+      k === "arrowright" ||
+      k === "w" ||
+      k === "a" ||
+      k === "s" ||
+      k === "d";
 
-      if (k === "j") setCurrentLevel((lv) => Math.max(1, lv - 1));
-      if (k === "l") setCurrentLevel((lv) => Math.min(maxLevelReached, lv + 1));
+    // ✅ BLOCCA LO SCROLL DELLA PAGINA
+    if (isMoveKey) e.preventDefault();
 
-      if (k === "r") {
-        const next = levelToSize(currentLevel);
-        const gen = generateLevel(next.w, next.h, levelRule.mode);
-        setLevels((prev) => ({
-          ...prev,
-          [currentLevel]: {
-            maze: gen.maze,
-            start: gen.start,
-            exit: gen.exit,
-            mode: gen.mode,
-            keyPos: gen.keyPos,
-            checkpoints: gen.checkpoints,
-          },
-        }));
-      }
+    if (k === "arrowup" || k === "w") move("N");
+    if (k === "arrowdown" || k === "s") move("S");
+    if (k === "arrowleft" || k === "a") move("W");
+    if (k === "arrowright" || k === "d") move("E");
+
+    if (k === "j") setCurrentLevel((lv) => Math.max(1, lv - 1));
+    if (k === "l") setCurrentLevel((lv) => Math.min(maxLevelReached, lv + 1));
+
+    if (k === "r") {
+      const next = levelToSize(currentLevel);
+      const gen = generateLevel(next.w, next.h, levelRule.mode);
+      setLevels((prev) => ({
+        ...prev,
+        [currentLevel]: {
+          maze: gen.maze,
+          start: gen.start,
+          exit: gen.exit,
+          mode: gen.mode,
+          keyPos: gen.keyPos,
+          checkpoints: gen.checkpoints,
+        },
+      }));
     }
+  }
 
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [maze, currentLevel, maxLevelReached, levelRule.mode, soundEnabled]);
+  // ⚠️ passive:false è fondamentale
+  window.addEventListener("keydown", onKeyDown, { passive: false });
+
+  return () => window.removeEventListener("keydown", onKeyDown as any);
+}, [maze, currentLevel, maxLevelReached, levelRule.mode, soundEnabled]);
 
   function resetAll() {
     setMaxLevelReached(1);
